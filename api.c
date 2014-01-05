@@ -248,6 +248,7 @@ static const char *OSINFO =
 #define _SETCONFIG	"SETCONFIG"
 #define _USBSTATS	"USBSTATS"
 #define _CURRENTPOOL	"CURRENTPOOL"
+#define _STRATEGY	"STRATEGY"
 
 static const char ISJSON = '{';
 #define JSON0		"{"
@@ -291,6 +292,7 @@ static const char ISJSON = '{';
 #define JSON_SETCONFIG	JSON1 _SETCONFIG JSON2
 #define JSON_USBSTATS	JSON1 _USBSTATS JSON2
 #define JSON_CURRENTPOOL	JSON1 _CURRENTPOOL JSON2
+#define JSON_STRATEGY	JSON1 _STRATEGY JSON2
 #define JSON_END	JSON4 JSON5
 #define JSON_END_TRUNCATED	JSON4_TRUNCATED JSON5
 
@@ -440,6 +442,12 @@ static const char *JSON_PARAMETER = "parameter";
 #define MSG_LOCKDIS 124
 
 #define MSG_CURRENTPOOL 125
+#define MSG_STRATEGY 126
+
+#define MSG_MISSTR 127
+#define MSG_MISPER 128
+#define MSG_INVPER 129
+#define MSG_INVSTR 130
 
 enum code_severity {
 	SEVERITY_ERR,
@@ -543,11 +551,16 @@ struct CODES {
  { SEVERITY_SUCC,  MSG_NUMGPU,	PARAM_NONE,	"GPU count" },
  { SEVERITY_SUCC,  MSG_NUMPGA,	PARAM_NONE,	"PGA count" },
  { SEVERITY_SUCC,  MSG_NUMASC,	PARAM_NONE,	"ASC count" },
- { SEVERITY_SUCC,  MSG_CURRENTPOOL,	PARAM_NONE,	"Current pool" },
+ { SEVERITY_SUCC,  MSG_CURRENTPOOL,	PARAM_NONE,	"Current Pool" },
+ { SEVERITY_SUCC,  MSG_STRATEGY,	PARAM_NONE,	"Strategy" },
  { SEVERITY_SUCC,  MSG_VERSION,	PARAM_NONE,	"CGMiner versions" },
  { SEVERITY_ERR,   MSG_INVJSON,	PARAM_NONE,	"Invalid JSON" },
  { SEVERITY_ERR,   MSG_MISCMD,	PARAM_CMD,	"Missing JSON '%s'" },
  { SEVERITY_ERR,   MSG_MISPID,	PARAM_NONE,	"Missing pool id parameter" },
+ { SEVERITY_ERR,   MSG_MISSTR,	PARAM_NONE,	"Missing strategy parameter" },
+ { SEVERITY_ERR,   MSG_MISPER,	PARAM_NONE,	"Missing period parameter" },
+ { SEVERITY_ERR,   MSG_INVPER,	PARAM_NONE,	"Invalid period range is 0 - 9999" },
+ { SEVERITY_ERR,   MSG_INVSTR,	PARAM_NONE,	"Invalid strategy parameter, valid values 0:Failover, 1:Round Robin, 2: Rotate,3: Load Balance,4: Balance" },
  { SEVERITY_ERR,   MSG_INVPID,	PARAM_POOLMAX,	"Invalid pool id %d - range is 0 - %d" },
  { SEVERITY_SUCC,  MSG_SWITCHP,	PARAM_POOL,	"Switching to pool %d:'%s'" },
  { SEVERITY_ERR,   MSG_MISVAL,	PARAM_NONE,	"Missing comma after GPU number" },
@@ -2809,6 +2822,65 @@ static void pgacount(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __may
 		io_close(io_data);
 }
 
+static void strategy(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
+{
+	int strategy;
+        int period;
+        
+        if (param == NULL || *param == '\0') {
+		message(io_data, MSG_MISSTR, 0, NULL, isjson);
+		return;
+	}
+        
+        
+        char ** res  = NULL;
+        char *  p    = strtok (param, ",");
+        int n_spaces = 0, i;
+        
+        while (p) {
+            res = realloc (res, sizeof (char*) * ++n_spaces);
+            res[n_spaces-1] = p;
+            p = strtok (NULL, ",");
+        }
+        
+        /* realloc one extra element for the last NULL */
+
+        res = realloc (res, sizeof (char*) * (n_spaces+1));
+        res[n_spaces] = 0;
+
+        /* print the result */
+        
+        strategy = atoi(res[0]);
+        if (strategy < 0 || strategy > TOP_STRATEGY) {
+            message(io_data, MSG_INVSTR, 0, NULL, isjson);
+            return;
+        }
+        if (n_spaces > 0) {
+            period = atoi(res[1]);
+        }
+        
+        cg_rlock(&control_lock);
+        if (strategy == POOL_ROTATE) {
+            if (period < 0 || period > 9999) {
+                cg_runlock(&control_lock);
+                opt_rotate_period = 0;
+                message(io_data, MSG_INVPER, 0, NULL, isjson);
+                return;
+            }
+            else {
+                opt_rotate_period = period;
+            }
+        }
+        else {
+            opt_rotate_period = 0;
+        }
+        pool_strategy = strategy;
+        cg_runlock(&control_lock);
+        switch_pools(NULL);
+        
+	message(io_data, MSG_STRATEGY, 0, NULL, isjson);
+}
+
 static void switchpool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
 {
 	struct pool *pool;
@@ -4291,6 +4363,7 @@ struct CMDS {
 	{ "gpucount",		gpucount,	false },
 	{ "pgacount",		pgacount,	false },
 	{ "currentpool",	currentpool,	false },
+	{ "strategy",           strategy,	true },
 	{ "switchpool",		switchpool,	true },
 	{ "addpool",		addpool,	true },
 	{ "poolpriority",	poolpriority,	true },
