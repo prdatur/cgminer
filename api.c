@@ -247,6 +247,7 @@ static const char *OSINFO =
 #define _DEBUGSET	"DEBUG"
 #define _SETCONFIG	"SETCONFIG"
 #define _USBSTATS	"USBSTATS"
+#define _CURRENTPOOL	"CURRENTPOOL"
 
 static const char ISJSON = '{';
 #define JSON0		"{"
@@ -289,6 +290,7 @@ static const char ISJSON = '{';
 #define JSON_DEBUGSET	JSON1 _DEBUGSET JSON2
 #define JSON_SETCONFIG	JSON1 _SETCONFIG JSON2
 #define JSON_USBSTATS	JSON1 _USBSTATS JSON2
+#define JSON_CURRENTPOOL	JSON1 _CURRENTPOOL JSON2
 #define JSON_END	JSON4 JSON5
 #define JSON_END_TRUNCATED	JSON4_TRUNCATED JSON5
 
@@ -437,6 +439,8 @@ static const char *JSON_PARAMETER = "parameter";
 #define MSG_LOCKOK 123
 #define MSG_LOCKDIS 124
 
+#define MSG_CURRENTPOOL 125
+
 enum code_severity {
 	SEVERITY_ERR,
 	SEVERITY_WARN,
@@ -539,6 +543,7 @@ struct CODES {
  { SEVERITY_SUCC,  MSG_NUMGPU,	PARAM_NONE,	"GPU count" },
  { SEVERITY_SUCC,  MSG_NUMPGA,	PARAM_NONE,	"PGA count" },
  { SEVERITY_SUCC,  MSG_NUMASC,	PARAM_NONE,	"ASC count" },
+ { SEVERITY_SUCC,  MSG_CURRENTPOOL,	PARAM_NONE,	"Current pool" },
  { SEVERITY_SUCC,  MSG_VERSION,	PARAM_NONE,	"CGMiner versions" },
  { SEVERITY_ERR,   MSG_INVJSON,	PARAM_NONE,	"Invalid JSON" },
  { SEVERITY_ERR,   MSG_MISCMD,	PARAM_CMD,	"Missing JSON '%s'" },
@@ -2021,6 +2026,7 @@ static void gpustatus(struct io_data *io_data, int gpu, bool isjson, bool precom
 					cgpu->last_share_pool : -1;
 		root = api_add_int(root, "Last Share Pool", &last_share_pool, false);
 		root = api_add_time(root, "Last Share Time", &(cgpu->last_share_pool_time), false);
+                root = api_add_int(root, "Current Pool", &current_pool()->pool_no, false);
 		root = api_add_mhtotal(root, "Total MH", &(cgpu->total_mhashes), false);
 		root = api_add_int(root, "Diff1 Work", &(cgpu->diff1), false);
 		root = api_add_diff(root, "Difficulty Accepted", &(cgpu->diff_accepted), false);
@@ -2098,6 +2104,7 @@ static void ascstatus(struct io_data *io_data, int asc, bool isjson, bool precom
 					cgpu->last_share_pool : -1;
 		root = api_add_int(root, "Last Share Pool", &last_share_pool, false);
 		root = api_add_time(root, "Last Share Time", &(cgpu->last_share_pool_time), false);
+                root = api_add_int(root, "Current Pool", &current_pool()->pool_no, false);
 		root = api_add_mhtotal(root, "Total MH", &(cgpu->total_mhashes), false);
 		root = api_add_int(root, "Diff1 Work", &(cgpu->diff1), false);
 		root = api_add_diff(root, "Difficulty Accepted", &(cgpu->diff_accepted), false);
@@ -2184,6 +2191,7 @@ static void pgastatus(struct io_data *io_data, int pga, bool isjson, bool precom
 					cgpu->last_share_pool : -1;
 		root = api_add_int(root, "Last Share Pool", &last_share_pool, false);
 		root = api_add_time(root, "Last Share Time", &(cgpu->last_share_pool_time), false);
+                root = api_add_int(root, "Current Pool", &current_pool()->pool_no, false);
 		root = api_add_mhtotal(root, "Total MH", &(cgpu->total_mhashes), false);
 		root = api_add_freq(root, "Frequency", &frequency, false);
 		root = api_add_int(root, "Diff1 Work", &(cgpu->diff1), false);
@@ -2830,6 +2838,23 @@ static void switchpool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, cha
 	switch_pools(pool);
 
 	message(io_data, MSG_SWITCHP, id, NULL, isjson);
+}
+
+static void currentpool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __maybe_unused char *param, bool isjson, __maybe_unused char group)
+{
+	struct api_data *root = NULL;
+	char buf[TMPBUFSIZ];
+	bool io_open;
+
+	message(io_data, MSG_CURRENTPOOL, 0, NULL, isjson);
+	io_open = io_add(io_data, isjson ? COMSTR JSON_CURRENTPOOL : _CURRENTPOOL COMSTR);
+
+	root = api_add_int(root, "Pool", &current_pool()->pool_no, false);
+
+	root = print_data(root, buf, isjson, false);
+	io_add(io_data, buf);
+	if (isjson && io_open)
+		io_close(io_data);
 }
 
 static void copyadvanceafter(char ch, char **param, char **buf)
@@ -4265,6 +4290,7 @@ struct CMDS {
 #endif
 	{ "gpucount",		gpucount,	false },
 	{ "pgacount",		pgacount,	false },
+	{ "currentpool",	currentpool,	false },
 	{ "switchpool",		switchpool,	true },
 	{ "addpool",		addpool,	true },
 	{ "poolpriority",	poolpriority,	true },
