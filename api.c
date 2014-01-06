@@ -448,10 +448,6 @@ static const char *JSON_PARAMETER = "parameter";
 #define MSG_MISPER 128
 #define MSG_INVPER 129
 #define MSG_INVSTR 130
-#define MSG_UPDPOOL 131
-#define MSG_MISUDP 132
-#define MSG_INVUDP 133
-#define MSG_UPDERR 134
 
 enum code_severity {
 	SEVERITY_ERR,
@@ -599,10 +595,6 @@ struct CODES {
  { SEVERITY_ERR,   MSG_INVPDP,	PARAM_STR,	"Invalid addpool details '%s'" },
  { SEVERITY_ERR,   MSG_TOOMANYP,PARAM_NONE,	"Reached maximum number of pools (%d)" },
  { SEVERITY_SUCC,  MSG_ADDPOOL,	PARAM_STR,	"Added pool '%s'" },
- { SEVERITY_ERR,   MSG_MISUDP,	PARAM_NONE,	"Missing updatepool details" },
- { SEVERITY_ERR,   MSG_INVUDP,	PARAM_STR,	"Invalid updatepool details '%s'" },
- { SEVERITY_SUCC,  MSG_UPDPOOL,	PARAM_STR,	"Updated pool '%s'" },
- { SEVERITY_ERR,   MSG_UPDERR,	PARAM_STR,	"Can not updated active pool" },
  { SEVERITY_ERR,   MSG_REMLASTP,PARAM_POOL,	"Cannot remove last pool %d:'%s'" },
  { SEVERITY_ERR,   MSG_ACTPOOL, PARAM_POOL,	"Cannot remove active pool %d:'%s'" },
  { SEVERITY_SUCC,  MSG_REMPOOL, PARAM_BOTH,	"Removed pool %d:'%s'" },
@@ -2954,54 +2946,6 @@ static void copyadvanceafter(char ch, char **param, char **buf)
 	*(dst_b++) = '\0';
 }
 
-static bool updatepooldetails(char *param, int *id, char **url, char **user, char **pass)
-{
-	char *ptr, *buf;
-        char *idcheck;
-        int idc;
-	ptr = buf = malloc(strlen(param)+1);
-	if (unlikely(!buf))
-		quit(1, "Failed to malloc pooldetails buf");
-        
-        idcheck = buf;
-
-	// copy id
-	copyadvanceafter(',', &param, &buf);
-        
-        idc = atoi(idcheck);
-        *id = idc;
-        
-        if (!(*param)) // missing url
-		goto exitsama;
-        
-	*url = buf;
-
-	// copy url
-	copyadvanceafter(',', &param, &buf);
-
-	if (!(*param)) // missing user
-		goto exitsama;
-
-	*user = buf;
-
-	// copy user
-	copyadvanceafter(',', &param, &buf);
-
-	if (!*param) // missing pass
-		goto exitsama;
-
-	*pass = buf;
-
-	// copy pass
-	copyadvanceafter(',', &param, &buf);
-
-	return true;
-
-exitsama:
-	free(ptr);
-	return false;
-}
-
 static bool pooldetails(char *param, char **url, char **user, char **pass)
 {
 	char *ptr, *buf;
@@ -3064,54 +3008,6 @@ static void addpool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *
 
 	ptr = escape_string(url, isjson);
 	message(io_data, MSG_ADDPOOL, 0, ptr, isjson);
-	if (ptr != url)
-		free(ptr);
-	ptr = NULL;
-}
-
-static void updatepool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
-{
-        struct pool *pool;
-        int id;
-	char *url, *user, *pass;
-	char *ptr;
-
-        if (total_pools == 0) {
-		message(io_data, MSG_NOPOOL, 0, NULL, isjson);
-		return;
-	}
-        
-	if (param == NULL || *param == '\0') {
-		message(io_data, MSG_MISUDP, 0, NULL, isjson);
-		return;
-	}
-
-	if (!updatepooldetails(param, &id, &url, &user, &pass)) {
-		ptr = escape_string(param, isjson);
-		message(io_data, MSG_INVUDP, 0, ptr, isjson);
-		if (ptr != param)
-			free(ptr);
-		ptr = NULL;
-		return;
-	}
-        
-        if (id < 0 || id >= total_pools) {
-		message(io_data, MSG_INVPID, id, NULL, isjson);
-		return;
-	}
-        
-        if (id == current_pool()->pool_no) {
-		message(io_data, MSG_UPDERR, 0, NULL, isjson);
-		return;
-	}
-
-	pool = pools[id];
-
-	detect_stratum(pool, url);
-	add_pool_details(pool, true, url, user, pass);
-
-	ptr = escape_string(url, isjson);
-	message(io_data, MSG_UPDPOOL, 0, ptr, isjson);
 	if (ptr != url)
 		free(ptr);
 	ptr = NULL;
@@ -4470,7 +4366,6 @@ struct CMDS {
 	{ "strategy",           strategy,	true },
 	{ "switchpool",		switchpool,	true },
 	{ "addpool",		addpool,	true },
-	{ "updatepool",		updatepool,	true },
 	{ "poolpriority",	poolpriority,	true },
 	{ "poolquota",		poolquota,	true },
 	{ "enablepool",		enablepool,	true },
